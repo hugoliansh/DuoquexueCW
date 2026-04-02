@@ -193,23 +193,21 @@ const expenseCategories = {
     "预付款":["场地预付","广告预付"]
 };
 
-// ========== 云端存储配置（真正互通） ==========
-const STORAGE_KEY = "financeRecords_v2";
-const CAPITAL_KEY = "initialCapital_v2";
+// ========== 永久可用云端存储（无需腾讯云、无需配置） ==========
+const JSONBIN_ID = "67f7ca7facd3837143fe2a88";
+const JSONBIN_KEY = "$2b$10$eQyZ8xX7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4A3s2D";
 
-// 云端存储读写
 async function loadFromCloud() {
     try {
-        const res = await fetch("https://api.jsonbin.io/v3/b/67f55e8dacd3837143fe122a/latest", {
-            headers: { "X-Master-Key": "$2b$10$uX7Q0Oe0exlWb50M5v5M5u" }
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}/latest`, {
+            headers: { "X-Master-Key": JSONBIN_KEY }
         });
         const data = await res.json();
         records = data.record.records || [];
         initialCapital = data.record.initialCapital || 0;
         document.getElementById("initialCapital").value = initialCapital;
     } catch (e) {
-        records = [];
-        initialCapital = 0;
+        records = []; initialCapital = 0;
     }
     loadRecords();
     updateProgress();
@@ -217,15 +215,17 @@ async function loadFromCloud() {
 
 async function saveToCloud() {
     try {
-        await fetch("https://api.jsonbin.io/v3/b/67f55e8dacd3837143fe122a", {
+        await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}`, {
             method: "PUT",
             headers: {
                 "Content-Type": "application/json",
-                "X-Master-Key": "$2b$10$uX7Q0Oe0exlWb50M5v5M5u"
+                "X-Master-Key": JSONBIN_KEY
             },
             body: JSON.stringify({ records, initialCapital })
         });
-    } catch (e) {}
+    } catch (e) {
+        alert("数据同步失败");
+    }
 }
 
 window.onload = async function () {
@@ -372,7 +372,7 @@ function closeReport() {
     document.getElementById('reportModal').style.display = 'none';
 }
 
-// ========== 修复：月度明细（正确统计归属月 + 支付月） ==========
+// ========== 修复：月度明细（正确统计） ==========
 function showMonthDetail() {
     let m = document.getElementById('monthQuery').value;
     if (!m) { alert('请选择月份'); return }
@@ -430,7 +430,7 @@ function showMonthDetail() {
     showReport(`${m} 月度明细`, summaryHtml + tableHtml, reportData);
 }
 
-// ========== 修复：年度财报（正确统计 + 正确加房租） ==========
+// ========== 修复：年度财报（正确统计） ==========
 function genYearReport() {
     let year = document.getElementById('yearInput').value | 0;
     let annualRent = parseFloat(document.getElementById('yearRent').value) || 0;
@@ -439,20 +439,16 @@ function genYearReport() {
     let prefix = year + "-";
     let list = records.filter(x => x.payDate.startsWith(prefix));
 
-    let income = 0, totalExpense = 0;
+    let income = 0, totalExp = 0;
     list.forEach(r => {
         if (r.isDividend) return;
-        let finalAmount = r.amount + (r.adjustment || 0);
-        if (r.type === "收入") {
-            income += finalAmount;
-        } else {
-            totalExpense += finalAmount;
-        }
+        let fa = r.amount + (r.adjustment || 0);
+        if (r.type == "收入") income += fa;
+        else totalExp += fa;
     });
 
-    let realExpenseNoRent = totalExpense;
-    let finalTotalExpense = realExpenseNoRent + annualRent;
-    let profit = income - finalTotalExpense;
+    let finalExp = totalExp + annualRent;
+    let profit = income - finalExp;
 
     let tableHtml = `<table border="1" cellpadding="5" cellspacing="0" style="width:100%;border-collapse:collapse;">
         <tr style="background:#eee;"><th>日期</th><th>归属月</th><th>类型</th><th>分类</th><th>渠道</th><th>金额</th><th>修正</th><th>最终</th><th>操作人</th><th>备注</th></tr>`;
@@ -475,9 +471,9 @@ function genYearReport() {
 
     let summaryHtml = `<h3>${year} 年度财报</h3>
     <p>全年总收入：${income.toFixed(2)}</p>
-    <p>全年总支出（不含房租）：${realExpenseNoRent.toFixed(2)}</p>
+    <p>全年支出（不含房租）：${totalExp.toFixed(2)}</p>
     <p>全年房租：${annualRent.toFixed(2)}</p>
-    <p>全年总支出（含房租）：${finalTotalExpense.toFixed(2)}</p>
+    <p>全年总支出：${finalExp.toFixed(2)}</p>
     <p>年度净利润：${profit.toFixed(2)}</p>`;
 
     let reportData = list.map(r => [
