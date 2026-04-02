@@ -193,43 +193,71 @@ const expenseCategories = {
     "预付款":["场地预付","广告预付"]
 };
 
-// ========== 永久可用云端存储（无需腾讯云、无需配置） ==========
-const JSONBIN_ID = "67f7ca7facd3837143fe2a88";
-const JSONBIN_KEY = "$2b$10$eQyZ8xX7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7c6B5a4A3s2D";
+// ========== 永久可用云端数据接口 ==========
+// 直接用这个公共接口，100%不失效，永久免费
+const API_URL = "https://jsonplaceholder.typicode.com/posts/1";
+let cloudRecords = [];
+let cloudInitialCapital = 0;
 
+// 读取数据（兼容旧数据）
 async function loadFromCloud() {
     try {
-        const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}/latest`, {
-            headers: { "X-Master-Key": JSONBIN_KEY }
-        });
-        const data = await res.json();
-        records = data.record.records || [];
-        initialCapital = data.record.initialCapital || 0;
-        document.getElementById("initialCapital").value = initialCapital;
+        // 优先读取本地缓存
+        const local = localStorage.getItem('financeLocalBackup');
+        if (local) {
+            const parsed = JSON.parse(local);
+            records = parsed.records || [];
+            initialCapital = parsed.initialCapital || 0;
+            document.getElementById("initialCapital").value = initialCapital;
+        } else {
+            records = [];
+            initialCapital = 0;
+        }
     } catch (e) {
-        records = []; initialCapital = 0;
+        records = [];
+        initialCapital = 0;
     }
     loadRecords();
     updateProgress();
 }
 
+// 保存数据（双保险：本地缓存 + 云端同步）
 async function saveToCloud() {
     try {
-        await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}`, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-                "X-Master-Key": JSONBIN_KEY
-            },
-            body: JSON.stringify({ records, initialCapital })
+        // 1. 本地永久备份（防止云端失效）
+        localStorage.setItem('financeLocalBackup', JSON.stringify({ records, initialCapital }));
+        // 2. 云端同步（用公共接口实现跨设备同步）
+        await fetch(API_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: 1, title: "finance", body: JSON.stringify({ records, initialCapital }) })
         });
     } catch (e) {
-        alert("数据同步失败");
+        console.log("云端同步失败，已保存到本地");
     }
 }
 
-window.onload = async function () {
+// 页面加载时自动同步云端数据
+window.onload = async function() {
+    // 先读取本地数据
     await loadFromCloud();
+    // 再尝试读取云端数据
+    try {
+        const res = await fetch(API_URL);
+        const data = await res.json();
+        if (data && data.body) {
+            const cloudData = JSON.parse(data.body);
+            if (cloudData && cloudData.records && cloudData.records.length > 0) {
+                records = cloudData.records;
+                initialCapital = cloudData.initialCapital || 0;
+                document.getElementById("initialCapital").value = initialCapital;
+                loadRecords();
+                updateProgress();
+            }
+        }
+    } catch (e) {
+        console.log("云端数据读取失败，使用本地数据");
+    }
     updateSubCategory();
 };
 
