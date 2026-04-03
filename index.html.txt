@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>财务对账系统</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+body{font-family:Arial,sans-serif;margin:20px;background:#f5f7fa}
+.container{max-width:1300px;margin:0 auto;background:white;padding:20px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.1)}
+h1,h2,h3{color:#333}
+.form-group{margin:15px 0}
+label{display:inline-block;width:120px;font-weight:bold}
+input,select{padding:8px;width:220px;border:1px solid #ddd;border-radius:4px}
+button{padding:8px 16px;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer}
+button:hover{background:#0056b3}
+table{width:100%;border-collapse:collapse;margin-top:20px}
+th,td{padding:10px;border:1px solid #ddd;text-align:left}
+th{background:#f8f9fa}
+.red{color:red;font-weight:bold}
+.green{color:green;font-weight:bold}
+.summary,.capital-info{background:#e9f7ef;padding:15px;border-radius:4px;margin:20px 0}
+.login-box{margin-bottom:20px;padding:15px;background:#f0f4f8;border-radius:4px}
+.section-divider{border-top:1px solid #eee;margin:30px 0}
+.top-report{position:absolute;top:20px;right:20px;background:white;padding:15px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
+.top-report h3{margin-top:0;font-size:16px}
+</style>
+</head>
+<body>
+
+<!-- 未登录隐藏所有内容 -->
+<div id="allContent" style="display:none;">
+
+<!-- 报表弹窗 -->
+<div id="reportModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;">
+    <div style="background:white;margin:5% auto;padding:20px;width:80%;max-width:1000px;border-radius:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h2 id="reportTitle"></h2>
+            <div>
+                <button onclick="exportCurrentReport()">导出Excel</button>
+                <button onclick="closeReport()">关闭</button>
+            </div>
+        </div>
+        <div id="reportContent" style="max-height:600px;overflow:auto;"></div>
+    </div>
+</div>
+
+<!-- 右上角报表区 -->
+<div class="top-report">
+    <h3>财务报表</h3>
+    <div class="form-group" style="margin:8px 0">
+        <label style="width:auto">月度明细：</label>
+        <input type="month" id="monthQuery" style="width:140px">
+        <button onclick="showMonthDetail()">查询</button>
+    </div>
+    <div class="form-group" style="margin:8px 0">
+        <label style="width:auto">年度财报：</label>
+        <input type="number" id="yearInput" placeholder="2025" style="width:70px">
+        <input type="number" id="yearRent" placeholder="全年平均租金" style="width:120px">
+        <button onclick="genYearReport()">生成</button>
+    </div>
+</div>
+
+<div class="container">
+    <h1>财务对账系统</h1>
+
+    <!-- 登录后显示 -->
+    <div id="currentUserInfo" style="display:none;color:green">
+        当前登录：<span id="currentUser"></span>
+    </div>
+
+    <!-- 初始投入 -->
+    <div class="capital-info">
+        <h3>初始投入与回本进度</h3>
+        <div class="form-group">
+            <label>公司残值（初始投入）：</label>
+            <input type="number" id="initialCapital" step="0.01">
+            <button onclick="saveInitialCapital()">保存</button>
+        </div>
+        <div id="capitalProgress"></div>
+    </div>
+
+    <h2>数据录入</h2>
+    <div class="form-group">
+        <label>实际支付日期：</label>
+        <input type="date" id="payDate" required>
+    </div>
+
+    <div class="form-group">
+        <label>流水类型：</label>
+        <select id="recordType" onchange="toggleExpenseCategory()" required>
+            <option value="收入">收入</option>
+            <option value="支出">支出</option>
+        </select>
+    </div>
+
+    <div class="form-group" id="expenseCategoryGroup" style="display:none">
+        <label>支出大类：</label>
+        <select id="expenseMain" onchange="toggleBelongMonth(); updateSubCategory()">
+            <option value="人事支出">人事支出</option>
+            <option value="市场支出">市场支出</option>
+            <option value="行政支出">行政支出</option>
+            <option value="管理支出">管理支出</option>
+            <option value="场地支出">场地支出</option>
+            <option value="财务支出">财务支出</option>
+            <option value="预付款">预付款</option>
+        </select>
+        <label style="width:80px">小类：</label>
+        <select id="expenseSub"></select>
+    </div>
+
+    <div class="form-group" id="belongMonthGroup" style="display:none">
+        <label>工资归属月份：</label>
+        <input type="month" id="belongMonth">
+    </div>
+
+    <div class="form-group">
+        <label>支付渠道：</label>
+        <select id="channel" onchange="toggleAdjustment()" required>
+            <option value="支付宝">支付宝</option>
+            <option value="微信">微信</option>
+            <option value="兴业银行">兴业银行</option>
+            <option value="公司账户">公司账户</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>金额：</label>
+        <input type="number" id="amount" step="0.01" required>
+    </div>
+
+    <div class="form-group" id="adjustGroup" style="display:none">
+        <label>修正金额：</label>
+        <input type="number" id="adjustment" step="0.01" value="0">
+    </div>
+
+    <div class="form-group">
+        <label>备注：</label>
+        <input type="text" id="remark">
+    </div>
+
+    <button onclick="addRecord()">添加记录</button>
+
+    <div class="section-divider"></div>
+
+    <h2>查询对账</h2>
+    <div class="form-group">
+        <label>查询日期：</label>
+        <input type="date" id="queryDate">
+        <button onclick="queryDaily()">当日对账汇总</button>
+        <button onclick="queryBalance()">当日账户余额</button>
+    </div>
+
+    <div class="summary" id="summaryResult" style="white-space:pre-line"></div>
+
+    <h2>流水记录</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>支付日</th>
+                <th>归属月</th>
+                <th>类型</th>
+                <th>分类</th>
+                <th>渠道</th>
+                <th>金额</th>
+                <th>最终</th>
+                <th>操作人</th>
+                <th>备注</th>
+            </tr>
+        </thead>
+        <tbody id="recordBody"></tbody>
+    </table>
+</div>
+
+</div>
+
+<!-- 登录界面（默认显示，未登录看不到内容） -->
+<div class="login-box" id="loginBox" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:300px;background:#fff;padding:30px;border-radius:10px;box-shadow:0 0 20px #00000033;">
+    <h2>请登录</h2>
+    <div class="form-group">
+        <label>登录身份：</label>
+        <select id="userSelect">
+            <option value="admin">admin</option>
+            <option value="simon">simon</option>
+        </select>
+    </div>
+    <button onclick="login()" style="width:100%;margin-top:10px;">登录</button>
+</div>
+
+<script>
+let currentUser = null;
+let records = [];
+let initialCapital = 0;
+let currentReportData = null;
+let currentReportTitle = "";
+
+const expenseCategories = {
+    "人事支出":["薪资-基本薪酬","薪资-业绩奖励","团建","培训","招聘"],
+    "市场支出":["网络","渠道","地推","物资制作","人员工资"],
+    "行政支出":["办公用品","耗材","修缮","通讯","报销"],
+    "管理支出":["管理费","教学用品","活动","招生费"],
+    "场地支出":["场地租金","后勤","修缮"],
+    "财务支出":["税费","手续费"],
+    "预付款":["场地预付","广告预付"]
+};
+
+// ==============================================
+// 【你专属的云端存储 100% 互通】
+// ==============================================
+const YOUR_BIN_ID = "69cf5a1d36566621a875742d";
+const YOUR_API_KEY = "$2a$10$hNOU1jfJH8FC5ykplAHICOEQTs8InWsAt72BFVWLfbftzu5tI9s0W";
+
+async function loadFromCloud() {
+    try {
+        let res = await fetch(`https://api.jsonbin.io/v3/b/${YOUR_BIN_ID}/latest`, {
+            headers: { "X-Master-Key": YOUR_API_KEY }
+        });
+        let data = await res.json();
+        records = data.record.records || [];
+        initialCapital = data.record.initialCapital || 0;
+        document.getElementById("initialCapital").value = initialCapital;
+    } catch (e) {
+        records = []; initialCapital = 0;
+    }
+    loadRecords();
+    updateProgress();
+}
+
+async function saveToCloud() {
+    try {
+        await fetch(`https://api.jsonbin.io/v3/b/${YOUR_BIN_ID}`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Master-Key": YOUR_API_KEY
+            },
+            body: JSON.stringify({ records, initialCapital })
+        });
+    } catch (e) {}
+}
+
+window.onload = async function () {
+    await loadFromCloud();
+    updateSubCategory();
+};
+
+// ==============================================
+// 登录功能（不登录完全隐藏所有内容）
+// ==============================================
+function login() {
+    currentUser = document.getElementById('userSelect').value;
+    document.getElementById('loginBox').style.display = 'none';
+    document.getElementById('allContent').style.display = 'block';
+    document.getElementById('currentUserInfo').style.display = 'block';
+    document.getElementById('currentUser').innerText = currentUser;
+}
+
+// 功能函数
+function toggleExpenseCategory() {
+    let t = document.getElementById('recordType').value;
+    document.getElementById('expenseCategoryGroup').style.display = t == '支出' ? 'block' : 'none';
+    toggleBelongMonth();
+}
+function toggleBelongMonth() {
+    let main = document.getElementById('expenseMain').value;
+    document.getElementById('belongMonthGroup').style.display = main == '人事支出' ? 'block' : 'none';
+}
+function toggleAdjustment() {
+    let ch = document.getElementById('channel').value;
+    document.getElementById('adjustGroup').style.display = (ch == '兴业银行' || ch == '公司账户') ? 'block' : 'none';
+}
+function updateSubCategory() {
+    let main = document.getElementById('expenseMain').value;
+    let sub = document.getElementById('expenseSub');
+    sub.innerHTML = '';
+    expenseCategories[main].forEach(s => {
+        let opt = document.createElement('option');
+        opt.value = s;
+        opt.innerText = s;
+        sub.appendChild(opt);
+    })
+}
+
+// 初始投入
+function saveInitialCapital() {
+    initialCapital = parseFloat(document.getElementById('initialCapital').value) || 0;
+    saveToCloud();
+    updateProgress();
+}
+function updateProgress() {
+    let profit = records.filter(r => !r.isDividend).reduce((s, r) => {
+        let f = r.type == '收入' ? r.amount + (r.adjustment || 0) : -(r.amount + (r.adjustment || 0));
+        return s + f;
+    }, 0);
+    let pct = initialCapital > 0 ? Math.min(100, Math.max(0, profit / initialCapital * 100)) : 0;
+    document.getElementById('capitalProgress').innerHTML = `
+        初始投入：${initialCapital.toFixed(2)} 元<br>
+        累计经营利润：${profit.toFixed(2)} 元<br>
+        回本进度：${pct.toFixed(1)}%
+    `;
+}
+
+// 添加记录
+async function addRecord() {
+    if (!currentUser) { alert('请先登录'); return }
+    let r = {
+        payDate: document.getElementById('payDate').value,
+        belongMonth: (document.getElementById('expenseMain').value == '人事支出') ? document.getElementById('belongMonth').value : '',
+        type: document.getElementById('recordType').value,
+        category: document.getElementById('recordType').value == '支出' ? `${document.getElementById('expenseMain').value}-${document.getElementById('expenseSub').value}` : '',
+        channel: document.getElementById('channel').value,
+        amount: parseFloat(document.getElementById('amount').value) || 0,
+        adjustment: parseFloat(document.getElementById('adjustment').value) || 0,
+        operator: currentUser,
+        remark: document.getElementById('remark').value,
+        isDividend: document.getElementById('remark').value.includes('分红')
+    };
+    records.push(r);
+    await saveToCloud();
+    alert('保存成功');
+    loadRecords();
+    updateProgress();
+}
+
+// 加载流水
+function loadRecords() {
+    let b = document.getElementById('recordBody');
+    b.innerHTML = '';
+    records.forEach(r => {
+        let final = r.type == '收入' ? r.amount + (r.adjustment || 0) : -(r.amount + (r.adjustment || 0));
+        let tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${r.payDate}</td>
+            <td>${r.belongMonth || '-'}</td>
+            <td>${r.type}</td>
+            <td>${r.category || '-'}</td>
+            <td>${r.channel}</td>
+            <td>${r.amount.toFixed(2)}</td>
+            <td>${final.toFixed(2)}</td>
+            <td>${r.operator}</td>
+            <td>${r.remark || ''}</td>`;
+        b.appendChild(tr);
+    })
+}
+
+// 当日对账
+function queryDaily() {
+    let d = document.getElementById('queryDate').value;
+    let list = records.filter(x => x.payDate == d);
+    let income = 0, expense = 0;
+    let cat = {};
+    list.forEach(r => {
+        if (r.isDividend) return;
+        let f = r.type == '收入' ? r.amount + (r.adjustment || 0) : -(r.amount + (r.adjustment || 0));
+        if (r.type == '收入') income += f;
+        else { expense += Math.abs(f); cat[r.category] = (cat[r.category] || 0) + Math.abs(f); }
+    })
+    let s = `${d} 当日对账汇总\n收入：${income.toFixed(2)}\n支出：${expense.toFixed(2)}\n净额：${(income - expense).toFixed(2)}\n\n支出分类：\n`;
+    Object.keys(cat).forEach(k => s += `${k}: ${cat[k].toFixed(2)}\n`);
+    document.getElementById('summaryResult').innerText = s;
+}
+
+// 当日余额
+function queryBalance() {
+    let d = document.getElementById('queryDate').value;
+    let list = records.filter(x => x.payDate <= d);
+    let bal = { 支付宝:0,微信:0,兴业银行:0,公司账户:0 };
+    list.forEach(r => {
+        let f = r.type == '收入' ? r.amount + (r.adjustment || 0) : -(r.amount + (r.adjustment || 0));
+        bal[r.channel] += f;
+    })
+    let s = `截至 ${d} 账户余额\n支付宝：${bal.支付宝.toFixed(2)}\n微信：${bal.微信.toFixed(2)}\n兴业银行：${bal.兴业银行.toFixed(2)}\n公司账户：${bal.公司账户.toFixed(2)}`;
+    document.getElementById('summaryResult').innerText = s;
+}
+
+// 报表
+function showReport(title, content, reportData) {
+    currentReportTitle = title;
+    currentReportData = reportData;
+    document.getElementById('reportTitle').innerText = title;
+    document.getElementById('reportContent').innerHTML = content;
+    document.getElementById('reportModal').style.display = 'block';
+}
+function closeReport() { document.getElementById('reportModal').style.display = 'none'; }
+
+function showMonthDetail() {
+    let m = document.getElementById('monthQuery').value;
+    if (!m) { alert('请选择月份'); return }
+    let list = records.filter(x => x.belongMonth === m || (!x.belongMonth && x.payDate.startsWith(m)));
+    let income=0,expense=0,cat={};
+    list.forEach(r=>{if(r.isDividend)return;let f=r.type=='收入'?r.amount+(r.adjustment||0):-(r.amount+(r.adjustment||0));r.type=='收入'?income+=f:(expense+=Math.abs(f),cat[r.category||'未分类']=(cat[r.category||'未分类']||0)+Math.abs(f));})
+    let html=`<h3>${m} 月度汇总</h3><p>收入：${income.toFixed(2)}</p><p>支出：${expense.toFixed(2)}</p><p>净利：${(income-expense).toFixed(2)}</p><table border=1 cellpadding=5 width=100%><tr bgcolor=#eee><th>日期</th><th>归属月</th><th>类型</th><th>分类</th><th>渠道</th><th>金额</th><th>修正</th><th>最终</th><th>操作人</th><th>备注</th></tr>`;
+    list.forEach(r=>{let f=r.type=='收入'?r.amount+(r.adjustment||0):-(r.amount+(r.adjustment||0));html+=`<tr><td>${r.payDate}</td><td>${r.belongMonth||'-'}</td><td>${r.type}</td><td>${r.category||'-'}</td><td>${r.channel}</td><td>${r.amount.toFixed(2)}</td><td>${r.adjustment||0}</td><td>${f.toFixed(2)}</td><td>${r.operator}</td><td>${r.remark||''}</td></tr>`})
+    showReport(`${m}月度明细`,html+`</table>`,list.map(r=>[r.payDate,r.belongMonth||'',r.type,r.category||'',r.channel,r.amount,r.adjustment||0,(r.type=='收入'?1:-1)*(r.amount+(r.adjustment||0)),r.operator,r.remark||'']));
+}
+
+function genYearReport(){
+    let y=document.getElementById('yearInput').value|0,r=parseFloat(document.getElementById('yearRent').value)||0;if(!y){alert('请输入年份');return}
+    let list=records.filter(x=>x.payDate.startsWith(y+'-')),income=0,exp=0;
+    list.forEach(n=>{if(n.isDividend)return;let f=n.amount+(n.adjustment||0);n.type=='收入'?income+=f:exp+=f});
+    let html=`<h3>${y}年度财报</h3><p>总收入：${income.toFixed(2)}</p><p>总支出(不含房租)：${exp.toFixed(2)}</p><p>房租：${r.toFixed(2)}</p><p>总支出：${(exp+r).toFixed(2)}</p><p>净利：${(income-exp-r).toFixed(2)}</p><table border=1 cellpadding=5 width=100%><tr bgcolor=#eee><th>日期</th><th>归属月</th><th>类型</th><th>分类</th><th>渠道</th><th>金额</th><th>修正</th><th>最终</th><th>操作人</th><th>备注</th></tr>`;
+    list.forEach(n=>{let f=n.type=='收入'?n.amount+(n.adjustment||0):-(n.amount+(n.adjustment||0));html+=`<tr><td>${n.payDate}</td><td>${n.belongMonth||'-'}</td><td>${n.type}</td><td>${n.category||'-'}</td><td>${n.channel}</td><td>${n.amount.toFixed(2)}</td><td>${n.adjustment||0}</td><td>${f.toFixed(2)}</td><td>${n.operator}</td><td>${n.remark||''}</td></tr>`})
+    showReport(`${y}年度财报`,html+`</table>`,list.map(n=>[n.payDate,n.belongMonth||'',n.type,n.category||'',n.channel,n.amount,n.adjustment||0,(n.type=='收入'?1:-1)*(n.amount+(n.adjustment||0)),n.operator,n.remark||'']));
+}
+
+function exportCurrentReport(){if(!currentReportData){alert('请先查询');return}let ws=XLSX.utils.aoa_to_sheet([["日期","归属月","类型","分类","渠道","金额","修正","最终","操作人","备注"],...currentReportData]);let wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"报表");XLSX.writeFile(wb,currentReportTitle+".xlsx")}
+</script>
+</body>
+</html>
